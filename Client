@@ -1,0 +1,405 @@
+import math
+import time
+import random
+import sympy
+import warnings
+from random import randint, seed
+import sys
+from ecpy.curves import Curve, Point
+from Crypto.Hash import SHA3_256, HMAC, SHA256
+import requests
+from Crypto.Cipher import AES
+from Crypto import Random
+from Crypto.Util.Padding import pad
+from Crypto.Util.Padding import unpad
+import random
+import re
+import json
+
+API_URL = 'http://10.92.52.175:5000/'
+
+stuID = 28500  # Özge Gül Erbay
+stuID_2 = 26417 # Şevval Ayça Kahraman
+
+E = Curve.get_curve('secp256k1')
+n = E.order
+P = E.generator
+
+# server's Identitiy public key
+IKey_Ser = Point(93223115898197558905062012489877327981787036929201444813217704012422483432813, 8985629203225767185464920094198364255740987346743912071843303975587695337619, E)
+
+#IKPriv = 111557818222621862655469637887410286237238497240102942207761696646444177449806
+
+k_list_priv = [62180089692874741056931010160186452585384742953456922235033444585335833996565, 76200291747501825007385164922198331988674938535686504675220286626628453712030, 79881462648301480209663600201819938488309423416605790695384751600145675641642, 86078433522379561190940410911590659870069886275403258599722910116095514979957, 110143110918889390599335674888651646524302473462292932618013858837809916592253, 34293875596714483205741383414623986104941366951903895544078580493282909797261, 27367080301684756870885666483990769937650057736240469419362686002460047072507, 45227514332892887152210996096029091859256894913526296085900509334507281024913, 109443829893843582746341840757626774887232637619727504875939785503671704373304, 36247095482606208342892132144062353535719635220714823497275443652686443412387]
+
+def IKRegReq(h, s, x, y):
+    mes = {'ID': stuID, 'H': h, 'S': s, 'IKPUB.X': x, 'IKPUB.Y': y}
+    print("Sending message is: ", mes)
+    response = requests.put('{}/{}'.format(API_URL, "IKRegReq"), json=mes)
+    if ((response.ok) == False): print(response.json())
+
+
+def IKRegVerify(code):
+    mes = {'ID': stuID, 'CODE': code}
+    print("Sending message is: ", mes)
+    response = requests.put('{}/{}'.format(API_URL, "IKRegVerif"), json=mes)
+    if ((response.ok) == False): raise Exception(response.json())
+    print(response.json())
+
+
+def SPKReg(h, s, x, y):
+    mes = {'ID': stuID, 'H': h, 'S': s, 'SPKPUB.X': x, 'SPKPUB.Y': y}
+    print("Sending message is: ", mes)
+    response = requests.put('{}/{}'.format(API_URL, "SPKReg"), json=mes)
+    if ((response.ok) == False):
+        print(response.json())
+    else:
+        res = response.json()
+        return res['SPKPUB.X'], res['SPKPUB.Y'], res['H'], res['S']
+
+
+def OTKReg(keyID, x, y, hmac):
+    mes = {'ID': stuID, 'KEYID': keyID, 'OTKI.X': x, 'OTKI.Y': y, 'HMACI': hmac}
+    print("Sending message is: ", mes)
+    response = requests.put('{}/{}'.format(API_URL, "OTKReg"), json=mes)
+    print(response.json())
+    if ((response.ok) == False):
+        return False
+    else:
+        return True
+
+
+def ResetIK(rcode):
+    mes = {'ID': stuID, 'RCODE': rcode}
+    print("Sending message is: ", mes)
+    response = requests.delete('{}/{}'.format(API_URL, "ResetIK"), json=mes)
+    print(response.json())
+    if ((response.ok) == False):
+        return False
+    else:
+        return True
+
+
+def ResetSPK(h, s):
+    mes = {'ID': stuID, 'H': h, 'S': s}
+    print("Sending message is: ", mes)
+    response = requests.delete('{}/{}'.format(API_URL, "ResetSPK"), json=mes)
+    print(response.json())
+    if ((response.ok) == False):
+        return False
+    else:
+        return True
+
+
+def ResetOTK(h, s):
+    mes = {'ID': stuID, 'H': h, 'S': s}
+    print("Sending message is: ", mes)
+    response = requests.delete('{}/{}'.format(API_URL, "ResetOTK"), json=mes)
+    print(response.json())
+
+
+def PseudoSendMsgPH3(h, s):
+    mes = {'ID': stuID, 'H': h, 'S': s}
+    print("Sending message is: ", mes)
+    response = requests.put('{}/{}'.format(API_URL, "PseudoSendMsgPH3"), json=mes)
+    print(response.json())
+
+
+def ReqMsg(h, s):
+    mes = {'ID': stuID, 'H': h, 'S': s}
+    print("Sending message is: ", mes)
+    response = requests.get('{}/{}'.format(API_URL, "ReqMsg"), json=mes)
+    print(response.json())
+    if ((response.ok) == True):
+        res = response.json()
+        return res["IDB"], res["OTKID"], res["MSGID"], res["MSG"], res["EK.X"], res["EK.Y"]
+
+
+def SendMsg(idA, idB, otkid, msgid, msg, ekx, eky):
+    mes = {"IDA": idA, "IDB": idB, "OTKID": int(otkid), "MSGID": msgid, "MSG": msg, "EK.X": ekx, "EK.Y": eky}
+    print("Sending message is: ", mes)
+    response = requests.put('{}/{}'.format(API_URL, "SendMSG"), json=mes)
+    print(response.json())
+
+
+def reqOTKB(stuID, stuIDB, h, s):
+    OTK_request_msg = {'IDA': stuID, 'IDB': stuIDB, 'S': s, 'H': h}
+    print("Requesting party B's OTK ...")
+    response = requests.get('{}/{}'.format(API_URL, "ReqOTK"), json=OTK_request_msg)
+    print(response.json())
+    if ((response.ok) == True):
+        print(response.json())
+        res = response.json()
+        return res['KEYID'], res['OTK.X'], res['OTK.Y']
+    else:
+        return -1, 0, 0
+
+
+def Status(stuID, h, s):
+    mes = {'ID': stuID, 'H': h, 'S': s}
+    print("Sending message is: ", mes)
+    response = requests.get('{}/{}'.format(API_URL, "Status"), json=mes)
+    print(response.json())
+    if (response.ok == True):
+        res = response.json()
+        return res['numMSG'], res['numOTK'], res['StatusMSG']
+
+### phase 3 ###
+
+
+def OTK_generator(K_HMAC, SPK_A_priv, IK_A_priv):
+    OTK_pubs = []
+    OTK_keys = []
+    OTK_HMACs = []
+
+    for i in range(10):
+        k = Random.new().read(int(math.log(n, 2)))
+        k = int.from_bytes(k, byteorder='big') % n
+
+        isUnique = k not in OTK_keys and k != SPK_A_priv and k != IK_A_priv
+        while not ((0 < k < n - 1) and isUnique):
+            k = Random.new().read(int(math.log(n, 2)))
+            k = int.from_bytes(k, byteorder='big') % n
+
+        otk = k * P
+
+        otk_x_byte = otk.x.to_bytes((otk.x.bit_length() + 7) // 8, byteorder='big')
+        otk_y_byte = otk.y.to_bytes((otk.y.bit_length() + 7) // 8, byteorder='big')
+
+        otk_xy_concat = otk_x_byte + otk_y_byte
+
+        h = HMAC.new(msg=otk_xy_concat, key=K_HMAC, digestmod=SHA256)
+        hmaci_hex = h.hexdigest()
+        OTK_HMACs.append(hmaci_hex)
+
+        # otk_pub_x.append(otk.x)
+        # otk_pub_y.append(otk.y)
+
+        OTK_keys.append(k)
+        Q = k * P
+        OTK_pubs.append(Q)
+
+        OTKReg(i, otk.x, otk.y, hmaci_hex)
+
+    return OTK_pubs, OTK_keys, OTK_HMACs
+
+
+def keyGeneration():
+    sA = Random.new().read(int(math.log(n, 2)))
+    sA_ = int.from_bytes(sA, byteorder='big') % n
+    qA = sA_ * P
+    return sA_, qA
+
+
+def signatureGeneration(m, sA):
+    k = Random.new().read(int(math.log(n, 2)))
+    k = int.from_bytes(k, byteorder='big') % n
+
+    while not 0 < k < n - 1:
+        k = Random.new().read(int(math.log(n, 2)))
+        k = int.from_bytes(k, byteorder='big') % n
+
+    R = k * P
+    r = R.x % n
+
+    r_bytes = r.to_bytes((r.bit_length() + 7) // 8, byteorder='big')
+    h_obj = SHA3_256.new()
+    h_obj.update(r_bytes + m)
+    h = int.from_bytes(h_obj.digest(), byteorder='big') % n
+    s = (k - sA * h) % n
+
+    return h, s
+
+def signatureVerification(m, qA, h, s):
+    V = s * P + h * qA
+    v = V.x % n
+    v_ = v.to_bytes((v.bit_length() + 7) // 8, byteorder='big')
+    _hash = SHA3_256.new()
+    _hash.update(v_ + m)
+    h_ = int.from_bytes(_hash.digest(), "big") % n
+    return h_ == h
+
+
+ID = stuID.to_bytes((stuID.bit_length() + 7) // 8, byteorder='big')
+
+def keyDerivation(k_KDF, count, final_count):
+    k_Enc_temp = SHA3_256.new(k_KDF + b'LeaveMeAlone')
+    k_Enc = k_Enc_temp.digest()
+    k_HMAC_temp = SHA3_256.new(k_Enc + b'GlovesAndSteeringWheel')
+    k_HMAC = k_HMAC_temp.digest()
+
+    k_KDF_Next = None
+    if count != final_count:
+        k_KDF_Next = SHA3_256.new(k_HMAC + b'YouWillNotHaveTheDrink').digest()
+    return k_Enc, k_HMAC, k_KDF_Next
+
+def decrypt_aes_ctr(aes_key, c, nonce):
+    aes_ctext = AES.new(key=aes_key, mode=AES.MODE_CTR, nonce=nonce)
+    ptext = aes_ctext.decrypt(c)
+    return ptext
+
+# Generating Ks
+
+
+#IKPriv, IKPub = keyGeneration()
+IKPriv = 22616434315571602558469670498029670420163560784735463842278775399542517219441
+IKPub = P * IKPriv
+print("IKPriv: ", IKPriv)
+stuID_bytes = stuID.to_bytes((stuID.bit_length() + 7) // 8, byteorder='big')
+IDB = 18007
+IDB_bytes = IDB.to_bytes((stuID.bit_length() + 7) // 8, byteorder='big')
+
+h, s = signatureGeneration(stuID_bytes, IKPriv)
+IDB_h, IDB_s = signatureGeneration(IDB_bytes, IKPriv)
+
+# print(signatureVerification(stuID_bytes, IKPub, h, s))
+
+# IKRegReq(h, s, IKPub.x, IKPub.y)
+code = 629823
+rcode = 807941
+#IKRegVerify(code)
+
+SPK_Priv = 114727367831292910164912702180925166285434717763166064841829557778631323192300
+SPK_Pub = SPK_Priv * P
+
+print("SPK_Priv: ", SPK_Priv)
+
+SPK_Pub_x_bytes = SPK_Pub.x.to_bytes((SPK_Pub.x.bit_length() + 7) // 8, byteorder='big')
+SPK_Pub_y_bytes = SPK_Pub.y.to_bytes((SPK_Pub.y.bit_length() + 7) // 8, byteorder='big')
+
+conc = SPK_Pub_x_bytes + SPK_Pub_y_bytes
+
+conc_ = int.from_bytes(conc, "big")
+
+h, s = signatureGeneration(conc, IKPriv)
+
+print("Signature of SPK is: ")
+print("h: ", h)
+print("s: ", s)
+
+SPK_Pub_x_ser, SPK_Pub_y_ser, h, s = SPKReg(h, s, SPK_Pub.x, SPK_Pub.y)
+
+SPK_Pub_x_ser_bytes = SPK_Pub_x_ser.to_bytes((SPK_Pub.x.bit_length() + 7) // 8, byteorder='big')
+SPK_Pub_y_ser_bytes = SPK_Pub_y_ser.to_bytes((SPK_Pub.y.bit_length() + 7) // 8, byteorder='big')
+
+SPK_Pub_ser = Point(SPK_Pub_x_ser, SPK_Pub_y_ser, E)
+
+T = SPK_Priv * SPK_Pub_ser
+
+T_x_byte = T.x.to_bytes((T.x.bit_length()+7) // 8, byteorder='big')
+T_y_byte = T.y.to_bytes((T.y.bit_length()+7) // 8, byteorder='big')
+U = T_x_byte + T_y_byte + b'NoNeedToRideAndHide'
+
+k_HMAC = SHA3_256.new(U).digest()
+
+# PHASE 2
+h, s = signatureGeneration(stuID_bytes, IKPriv)
+ResetOTK(h, s)
+
+OTK_pubs, OTK_keys, OTK_HMAC = OTK_generator(k_HMAC, SPK_Priv, IKPriv)
+PseudoSendMsgPH3(h, s)
+
+numMsg, numOTK, statusMsg = Status(stuID, h, s)
+# {'numMSG': 5, 'numOTK': 8, 'StatusMSG': 'You have 5 unread messages in your mailbox.\n You have 8 OTKs left. The largest key id is 9'}
+
+message_count = 1
+
+statusMsg_list = statusMsg.split(" ")
+msg_amount = int(statusMsg_list[2])
+K_ENC = b''
+K_KDF = b''
+K_ENC_B = b''
+K_KDF_B = b''
+
+while message_count <= msg_amount:
+
+    print("***********************", "\n")
+
+    numMsg, numOTK, statusMsg = Status(stuID, h, s)
+
+    if numOTK == 0:
+        OTK_pubs, OTK_keys, HMAC_OTK = OTK_generator(k_HMAC)
+
+    stuIDB, OTKID, msgID, MSG, EK_x, EK_y = ReqMsg(h, s)
+    EK_pub = Point(EK_x, EK_y, E)
+    T = OTK_keys[OTKID] * EK_pub
+
+    T_x_byte = T.x.to_bytes((T.x.bit_length() + 7) // 8, byteorder='big')
+    T_y_byte = T.y.to_bytes((T.y.bit_length() + 7) // 8, byteorder='big')
+
+    U = T_x_byte + T_y_byte + b'MadMadWorld'
+
+    h_obj = SHA3_256.new(U)
+    K_S = h_obj.digest()
+
+    if message_count == 1:
+        enc_key = K_S
+    else:
+        enc_key = K_KDF
+
+    K_ENC = SHA3_256.new(enc_key + b'LeaveMeAlone').digest()
+
+    K_HMAC = SHA3_256.new(K_ENC + b'GlovesAndSteeringWheel').digest()
+
+    if message_count != 5:
+        K_KDF = SHA3_256.new(K_HMAC + b'YouWillNotHaveTheDrink').digest()
+
+    msg_byte = MSG.to_bytes((MSG.bit_length()+7) // 8, byteorder='big')
+    nonce = msg_byte[:8]
+    ciphertext = msg_byte[8: len(msg_byte) - 32]
+    mac = msg_byte[len(msg_byte) - 32:]
+
+    h_object = HMAC.new(key=K_HMAC, digestmod=SHA256)
+    h_object.update(ciphertext)
+    mac_prime = h_object.digest()
+
+    dec_Msg = None
+
+    if mac_prime == mac:
+        ptext = decrypt_aes_ctr(enc_key, ciphertext, nonce)
+        dec_Msg = ptext.decode('utf-8', errors='ignore')
+        #print("The message was: ", dec_Msg)
+
+        # the phase 3 starts here
+
+        keyIDB, OTKB_X, OTKB_Y = reqOTKB(stuID, IDB, IDB_h, IDB_s)
+        OTKB = Point(OTKB_X, OTKB_Y, E)
+
+        T_b = OTK_keys[OTKID] * OTKB
+
+        T_b_x_byte = T_b.x.to_bytes((T_b.x.bit_length() + 7) // 8, byteorder='big')
+        T_b_y_byte = T_b.y.to_bytes((T_b.y.bit_length() + 7) // 8, byteorder='big')
+
+        U_B = T_b_x_byte + T_b_y_byte + b'MadMadWorld'
+
+        K_S_B = SHA3_256.new(U_B).digest()
+
+        if message_count == 1:
+            enc_key_B = K_S_B
+        else:
+            enc_key_B = K_KDF_B
+
+        K_ENC_B = SHA3_256.new(enc_key_B + b'LeaveMeAlone').digest()
+        K_HMAC_B = SHA3_256.new(K_ENC_B + b'GlovesAndSteeringWheel').digest()
+
+        if message_count != 5:
+            K_KDF_B = SHA3_256.new(K_HMAC_B + b'YouWillNotHaveTheDrink').digest()
+
+        cText_nonce = AES.new(K_ENC_B, AES.MODE_CTR).nonce
+        cText_main = AES.new(K_ENC_B, AES.MODE_CTR).encrypt(ptext)
+        cText = cText_nonce + cText_main
+
+        new_mac = HMAC.new(msg=cText_main, digestmod=SHA256, key=K_HMAC_B).digest()
+        msg = cText + new_mac
+        msg_int = int.from_bytes(msg, byteorder='big')
+
+        SendMsg(stuID, stuIDB, keyIDB, msgID, msg_int, OTK_pubs[OTKID].x, OTK_pubs[OTKID].y)
+
+    else:
+        print("MAC:", mac)
+        print("MAC_prime:", mac_prime)
+        dec_Msg = "INVALIDHMAC"
+
+    message_count += 1
+    #print(dec_Msg)
+    print("\n")
